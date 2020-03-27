@@ -1,0 +1,23 @@
+Language Guidelines
+
+STR = String
+DIS = Display/Print/Expose
+NUM = Number
+EXP = expression
+VAR = Variable
+EQL = Equals
+GET = input
+IIF = If
+THN = Then
+EIF = Endif
+DQL = Double-Equals
+GRE = Greater equals
+GRT = Greater than
+LST = Less than
+LSE = less equals
+NTE = not equals
+CON = Conditions can cotain GRE, DQL, GRT, LST, LSE, NTE
+LOP = Loop
+TIL = loop from x 'TILL' y
+ELP = End Loop
+VXP = Variable Expression

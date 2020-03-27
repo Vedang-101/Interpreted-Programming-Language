@@ -1,0 +1,6 @@
+#var = 0
+loop #var to 5
+	loop #var to 2
+		expose 1
+	endloop
+endloop
