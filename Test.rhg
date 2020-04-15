@@ -1,6 +1,6 @@
-#var = 0
-loop #var to 5
-	loop #var to 2
-		expose 1
-	endloop
+
+loop 1 to 4
+loop 1 to 4
+expose "Loop Executing"
+endloop
 endloop

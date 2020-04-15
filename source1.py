@@ -1,7 +1,11 @@
 from sys import *
+from collections import defaultdict
 data=[]
 token = []
 symbols = {}
+temp_symbols={}
+funcdict=defaultdict(lambda:-1)
+use_temp_values=1
 loop = []
 
 def open_file(filename):
@@ -15,7 +19,10 @@ def lex(filecontent):
 		string = ""
 		expr = ""
 		var = ""
+		funcname=""
 		#bools
+		funcstarted=0 #for starting of function name
+		_at_the_rate=0
 		varstarted = 0
 		state = 0#used for string appendation
 		Isexpr = 0
@@ -39,6 +46,18 @@ def lex(filecontent):
 					token.append("VAR:"+var)
 					var = ""
 					varstarted = 0
+				if funcname!="":
+					if(_at_the_rate==1):
+						token.append("FUC:@"+funcname)
+						_at_the_rate=0
+					else:
+						token.append("FUC:"+funcname)
+					funcname=""
+					funcstarted=0
+			elif tok=="@":
+				funcstarted=1
+				_at_the_rate=1
+				tok="" 
 			elif tok == "\t":
 				if state == 0:
 					tok = ""
@@ -48,6 +67,10 @@ def lex(filecontent):
 					token.append("VAR:"+var)
 					var = ""
 					varstarted=0
+				if funcname!="":
+					token.append("FUC:"+funcname)
+					funcname=""
+					funcstarted=0
 			elif tok == "\n" or tok == "<EOF>":
 				if expr != "" and Isexpr == 0:
 					token.append("NUM:" + expr)
@@ -124,26 +147,48 @@ def lex(filecontent):
 				else:
 					token.append("EQL:")
 				tok = ""
+			elif tok=="serve" or tok=="SERVE":
+				funcstarted=1
+				tok=""
+			elif tok=="[":
+				funcstarted=0
+				if funcname!="":
+					if(_at_the_rate==1):
+						token.append("FUC:@"+funcname)
+						_at_the_rate=0
+					else:
+						token.append("FUC:"+funcname)
+					funcname=""
+				tok=""
+				token.append("STA:")
+			elif tok=="]":
+				if var!="":
+					varstarted=0
+					token.append("VAR:"+var)
+					var=""
+				elif expr!="" and Isexpr==0:
+					token.append("NUM:"+expr)
+					expr=""
+				elif expr!="" and Isexpr==1:
+					token.append("EXP:"+expr)
+					expr=""
+					Isexpr=0
+				tok=""
+				token.append("ENA:")
+			elif tok=="send" or tok=="SEND":
+				tok=""
+				token.append("RET:")
+			elif tok=="endserve" or tok=="ENDSERVE":
+				tok=""
+				token.append("ENF:")
 			elif tok == "#" and state == 0:
-				if(Isexpr==1 and expr!=""):
-				  token.append("EXP:"+expr)
-				  Isexpr=0
-				  expr=""
 				varstarted = 1
 				var += tok
 				tok = ""
 			elif varstarted == 1:
-				if(tok == "+" or tok == "-" or tok == "*" or tok == "/" or tok == "(" or tok == ")" or tok == "%"):
-					if varstarted==1:
-						varstarted=0
-						token.append("VAR:"+var)
-						var=""
-					Isexpr = 1
-					expr += tok
-					tok = ""
-				else:
-					var += tok
-					tok = ""
+				var += tok
+				tok = ""
+			#put it here
 			elif tok == "expose" or tok == "EXPOSE":
 				token.append("DIS:")
 				tok = ""
@@ -216,10 +261,6 @@ def lex(filecontent):
 				expr += tok
 				tok = ""
 			elif state == 0 and (tok == "+" or tok == "-" or tok == "*" or tok == "/" or tok == "(" or tok == ")" or tok == "%"):
-				if varstarted==1:
-					varstarted=0
-					token.append("VAR:"+var)
-					var=""
 				Isexpr = 1
 				expr += tok
 				tok = ""
@@ -234,9 +275,13 @@ def lex(filecontent):
 					string = ""
 					state = 0
 					tok = ""
+			elif funcstarted==1:
+				funcname+=tok
+				tok=""
 			elif state == 1:
 				string += tok
 				tok = ""
+		#return ''
 		return token
 
 def doPRINT(toPrint):
@@ -251,7 +296,7 @@ def doPRINT(toPrint):
 def doEvaluate(toEvaluate):
 	return str(eval(toEvaluate))
 
-def doAssign(VarName, VarValue):
+def doAssign(VarName, VarValue,symbols_store=False):
 	if VarValue[0:4] == "STR:":
 		VarValue = VarValue[5:-1]
 	elif VarValue[0:4] == "EXP:":
@@ -260,12 +305,20 @@ def doAssign(VarName, VarValue):
 		VarValue = VarValue[4:]
 	elif VarValue[0:4] == "VAR:":
 		VarValue = getVARIABLE(VarValue)
-	symbols[VarName[4:]] = VarValue
+	if not symbols_store:
+		symbols[VarName[4:]] = VarValue
+	else:
+		temp_symbols[VarName[4:]]=VarValue
 def doLoop(toks):
-	print(toks)
 	i = 0
 	index = 0
+	argsstarted=0
+	start=1
+	_at_the_rate=0
+	act_func_code_start=0
+	returntype=0
 	stack = []
+	prev=""
 	while(i<len(toks)):
 		if toks[i][0:4] == "ELP:":
 			toks[i] = "ELP:"+stack.pop()
@@ -273,8 +326,34 @@ def doLoop(toks):
 			toks[i] = "LOP:" + str(index)
 			stack.append(str(index))
 			index+=1
+		elif toks[i][0:4]== "FUC:":
+			if toks[i][4]!='@':
+				funcdict[toks[i][4:]]=[]
+				prev=toks[i][4:]
+			else:
+				_at_the_rate=1
+		elif toks[i][0:4]== "STA:":
+			argsstarted=1
+			start=1
+		elif toks[i][0:4]== "ENA:":
+			argsstarted=0
+			if start==1 and _at_the_rate==0:
+				funcdict[prev].append([])
+				start=0
+			act_func_code_start=i+1
+		elif toks[i][0:4]=="RET:":
+			returntype=1
+		elif toks[i][0:4]=="ENF:" and _at_the_rate==0:
+			funcdict[prev].append("RET:"+str(returntype))
+			funcdict[prev].append("ACT:"+str(act_func_code_start))
+			returntype=0
+			prev=""
+		elif argsstarted==1 and _at_the_rate==0:
+			if(start==1):
+				funcdict[prev].append([])
+				start=0
+			funcdict[prev][0].append(toks[i])
 		i+=1
-	print(toks)
 	return toks
 
 def getInput(string, varName):
@@ -301,32 +380,45 @@ def getVARIABLE(VarName):
 		return symbols[VarName]
 	else:
 		return "Undefined Variable :("
-	
-def getEvaluation(tok):
-	tok=tok.rstrip().lstrip();
-	tok=tok.split(" ")
-	for i in range(len(tok)):
-		if tok[i][0]=='#':
-			if tok[i] in symbols:
-				tok[i]=symbols[tok[i]]
-	tok="".join(tok)
-	tok=doEvaluate(tok)
-	tok="NUM:"+tok
-	return tok	
 
-def evaluateSpecialExpression(tok,toks,i,j):
-	while toks[i+j][0:4]=="EXP:" or toks[i+j][0:4]=="NUM:" or toks[i+j][0:4]=="VAR:":
-		tok+=toks[i+j][4:]+" "
-		j+=1
-	tok=getEvaluation(tok)
-	return tok,j
+def argumentAssignment(formal_arguments,actual_arguments):
+	if(len(formal_arguments)!=len(actual_arguments)):
+		return 0
+	else:
+		for i,j in zip(formal_arguments,actual_arguments):
+			if i==j and i[0:4]!="VAR:" and j[0:4]!="VAR:":
+				continue
+			elif i[0:4]=="VAR:" and (j[0:4]=="NUM:" or j[0:4]=="EXP:" or j[0:4]=="STR:" or j[0:4]=="VAR:"):
+				if j[0:4]=="NUM:":
+					doAssign(i,j,True)
+				elif j[0:4]=="STR:":
+					doAssign(i,j,True)
+				elif j[0:4]=="EXP:":
+					doAssign(i,j,True)
+				elif j[0:4]=="VAR:":
+					doAssign(i,j,True)
+			else:				
+				print("Arguments Mismatch")
+				exit()
+	return 1
+
+def solveFunc(toks,stack,i):
+	key=toks[i][5:]
+	formal_arguments=funcdict[toks[i][5:]]
+	while(toks[i]!="STA:"):
+		i+=1
+	actual_arguments=[]
+	while(toks[i]!="ENA:"):
+		actual_arguments.append(toks[i])
+		i+=1
+	if(argumentAssignment(formal_arguments,actual_arguments)):
+		return i+1
 
 def parse(toks):
 	i = 0
 	toks = doLoop(toks)
-	#stack=[]
+	stack=[]
 	while (i < len(toks)):
-		#print("Current Processing:",toks[i])
 		if toks[i] == "CON:LST":
 			i+=1
 		elif toks[i][0:4] == "ELP:":
@@ -337,12 +429,15 @@ def parse(toks):
 			x+=1
 			while toks[i] != "LOP:"+tex:
 				i-=1
-			if x > int(toks[i+3][4:]):
+			if x >= int(toks[i+3][4:]):
 				i = y+1
 			else:
 				loop.append(x)
 				i += 4
 		elif toks[i] == "EIF:":
+			i+=1
+		elif toks[i]=="ENF:":
+			i=stack.pop()
 			i+=1
 		elif toks[i] + " " + toks[i+1][0:4] == "DIS: STR:" or toks[i] + " " + toks[i+1][0:4] == "DIS: EXP:" or toks[i] + " " + toks[i+1][0:4] == "DIS: NUM:" or toks[i] + " " + toks[i+1][0:4] == "DIS: VAR:":
 			if toks[i+1][0:4] == "STR:":
@@ -357,44 +452,16 @@ def parse(toks):
 		elif toks[i][0:4] + " " + toks[i+1][0:4] + " " + toks[i+2][0:4] == "VAR: EQL: STR:" or toks[i][0:4] + " " + toks[i+1][0:4] + " " + toks[i+2][0:4] == "VAR: EQL: NUM:" or toks[i][0:4] + " " + toks[i+1][0:4] + " " + toks[i+2][0:4] == "VAR: EQL: EXP:" or toks[i][0:4] + " " + toks[i+1][0:4] + " " + toks[i+2][0:4] == "VAR: EQL: VAR:":
 			if toks[i+2][0:4] == "STR:":
 				doAssign(toks[i], toks[i+2])
-				j=3
 			elif toks[i+2][0:4] == "EXP:":
 				doAssign(toks[i], toks[i+2])
-				j=3
 			elif toks[i+2][0:4] == "NUM:":
 				doAssign(toks[i], toks[i+2])
-				j=3
 			elif toks[i+2][0:4] == "VAR:":
-				if toks[i+3][0:4]=="EXP:":
-					temp=toks[i]
-					tok=""
-					tok+=toks[i+2][4:]+" "+toks[i+3][4:]+" "
-					tok,j=evaluateSpecialExpression(tok,toks,i,4)
-					doAssign(temp,tok)
-				else:
-					doAssign(toks[i], toks[i+2])
-					j=3
-			i+=j
+				doAssign(toks[i], toks[i+2])
+			i+=3
 		elif toks[i][0:4] + " " + toks[i+1][0:4] + " " + toks[i+2][0:4] == "GET: STR: VAR:":
 			getInput(toks[i+1][4:],toks[i+2][4:])
 			i+=3
-		elif toks[i][0:4] + " " + toks[i+1][0:4] + " " + toks[i+2][0:4] + " " + toks[i+3][0:4] + " " + toks[i+4][0:4] == "IIF: NUM: CON: EXP: THN:":
-			if (toks[i+1][4:] == doEvaluate(toks[i+3][4:]) and toks[i+2][4:] == "DQL"):
-				i+=5
-			elif (toks[i+1][4:] > doEvaluate(toks[i+3][4:]) and toks[i+2][4:] == "GRT"):
-				i+=5
-			elif (toks[i+1][4:] < doEvaluate(toks[i+3][4:]) and toks[i+2][4:] == "LST"):
-				i+=5
-			elif (toks[i+1][4:] >= doEvaluate(toks[i+3][4:]) and toks[i+2][4:] == "GRE"):
-				i+=5
-			elif (toks[i+1][4:] <= doEvaluate(toks[i+3][4:]) and toks[i+2][4:] == "LSE"):
-				i+=5
-			elif (toks[i+1][4:] != doEvaluate(toks[i+3][4:]) and toks[i+2][4:] == "NTE"):
-				i+=5
-			else:
-				i+=5
-				while toks[i] != "EIF:":
-					i+=1
 		elif toks[i][0:4] + " " + toks[i+1][0:4] + " " + toks[i+2][0:4] + " " + toks[i+3][0:4] + " " + toks[i+4][0:4] == "IIF: NUM: CON: NUM: THN:":
 			if (toks[i+1][4:] == toks[i+3][4:] and toks[i+2][4:] == "DQL"):
 				i+=5
@@ -412,6 +479,25 @@ def parse(toks):
 				i+=5
 				while toks[i] != "EIF:":
 					i+=1
+			
+		elif toks[i][0:4] + " " + toks[i+1][0:4] + " " + toks[i+2][0:4] + " " + toks[i+3][0:4] + " " + toks[i+4][0:4] == "IIF: NUM: CON: EXP: THN:":
+			if (toks[i+1][4:] == doEvaluate(toks[i+3][4:]) and toks[i+2][4:] == "DQL"):
+				i+=5
+			elif (toks[i+1][4:] > doEvaluate(toks[i+3][4:]) and toks[i+2][4:] == "GRT"):
+				i+=5
+			elif (toks[i+1][4:] < doEvaluate(toks[i+3][4:]) and toks[i+2][4:] == "LST"):
+				i+=5
+			elif (toks[i+1][4:] >= doEvaluate(toks[i+3][4:]) and toks[i+2][4:] == "GRE"):
+				i+=5
+			elif (toks[i+1][4:] <= doEvaluate(toks[i+3][4:]) and toks[i+2][4:] == "LSE"):
+				i+=5
+			elif (toks[i+1][4:] != doEvaluate(toks[i+3][4:]) and toks[i+2][4:] == "NTE"):
+				i+=5
+			else:
+				i+=5
+				while toks[i] != "EIF:":
+					i+=1
+					
 		elif toks[i][0:4] + " " + toks[i+1][0:4] + " " + toks[i+2][0:4] + " " + toks[i+3][0:4] + " " + toks[i+4][0:4] == "IIF: EXP: CON: NUM: THN:":
 			if (doEvaluate(toks[i+1][4:]) == (toks[i+3][4:]) and toks[i+2][4:] == "DQL"):
 				i+=5
@@ -466,136 +552,59 @@ def parse(toks):
 				while toks[i] != "EIF:":
 					i+=1
 					
-		elif toks[i][0:4] + " " + toks[i+1][0:4] + " " + toks[i+2][0:4] + " " + toks[i+3][0:4]== "IIF: VAR: CON: VAR:":
-			if toks[i+4][0:4]=="THN:":
-				if ((int(getVARIABLE(toks[i+1])) == int(getVARIABLE(toks[i+3]))) and toks[i+2][4:] == "DQL"):
-					i+=5
-				elif ((int(getVARIABLE(toks[i+1])) > int(getVARIABLE(toks[i+3]))) and toks[i+2][4:] == "GRT"):
-					i+=5
-				elif (int(getVARIABLE(toks[i+1])) < int(getVARIABLE(toks[i+3])) and toks[i+2][4:] == "LST"):
-					i+=5
-				elif (int(getVARIABLE(toks[i+1])) >= int(getVARIABLE(toks[i+3])) and toks[i+2][4:] == "GRE"):
-					i+=5
-				elif (int(getVARIABLE(toks[i+1])) <= int(getVARIABLE(toks[i+3])) and toks[i+2][4:] == "LSE"):
-					i+=5
-				elif (int(getVARIABLE(toks[i+1])) != int(getVARIABLE(toks[i+3])) and toks[i+2][4:] == "NTE"):
-					i+=5
-				else:
-					i+=5
-					while toks[i] != "EIF:":
-						i+=1
+		elif toks[i][0:4] + " " + toks[i+1][0:4] + " " + toks[i+2][0:4] + " " + toks[i+3][0:4] + " " + toks[i+4][0:4] == "IIF: VAR: CON: VAR: THN:":
+			if (getVARIABLE(toks[i+1]) == getVARIABLE(toks[i+3]) and toks[i+2][4:] == "DQL"):
+				i+=5
+			elif (getVARIABLE(toks[i+1]) > getVARIABLE(toks[i+3]) and toks[i+2][4:] == "GRT"):
+				i+=5
+			elif (getVARIABLE(toks[i+1]) < getVARIABLE(toks[i+3]) and toks[i+2][4:] == "LST"):
+				i+=5
+			elif (getVARIABLE(toks[i+1]) >= getVARIABLE(toks[i+3]) and toks[i+2][4:] == "GRE"):
+				i+=5
+			elif (getVARIABLE(toks[i+1]) <= getVARIABLE(toks[i+3]) and toks[i+2][4:] == "LSE"):
+				i+=5
+			elif (getVARIABLE(toks[i+1]) != getVARIABLE(toks[i+3]) and toks[i+2][4:] == "NTE"):
+				i+=5
 			else:
-				if toks[i+4][0:4]=="EXP:":
-					tok=""
-					tok+=toks[i+3][4:]+" "+toks[i+4][4:]+" "
-					tok,j=evaluateSpecialExpression(tok,toks,i,5)
-					j+=1
-					if (int(getVARIABLE(toks[i+1])) == int(tok[4:]) and toks[i+2][4:] == "DQL"):
-						i+=j
-					elif (int(getVARIABLE(toks[i+1])) > int(tok[4:]) and toks[i+2][4:] == "GRT"):
-						print("Executed")
-						i+=j
-					elif (int(getVARIABLE(toks[i+1])) < int(tok[4:]) and toks[i+2][4:] == "LST"):
-						i+=j
-					elif (int(getVARIABLE(toks[i+1])) >= int(tok[4:]) and toks[i+2][4:] == "GRE"):
-						i+=j
-					elif (int(getVARIABLE(toks[i+1])) <= int(tok[4:]) and toks[i+2][4:] == "LSE"):
-						i+=j
-					elif (int(getVARIABLE(toks[i+1])) != int(tok[4:]) and toks[i+2][4:] == "NTE"):
-						i+=j
-					else:
-						i+=j
-						while toks[i] != "EIF:":
-							i+=1
-				else:
-					print("Invalid Expression")
-					break		
-		elif toks[i][0:4] + " " + toks[i+1][0:4] + " " + toks[i+2][0:4] + " " + toks[i+3][0:4] == "IIF: EXP: CON: VAR:":
-			if toks[i+4][0:4]=="THN:":
-				if (doEvaluate(toks[i+1][4:]) == getVARIABLE(toks[i+3]) and toks[i+2][4:] == "DQL"):
-					i+=5
-				elif (doEvaluate(toks[i+1][4:]) > getVARIABLE(toks[i+3]) and toks[i+2][4:] == "GRT"):
-					i+=5
-				elif (doEvaluate(toks[i+1][4:]) < getVARIABLE(toks[i+3]) and toks[i+2][4:] == "LST"):
-					i+=5
-				elif (doEvaluate(toks[i+1][4:]) >= getVARIABLE(toks[i+3]) and toks[i+2][4:] == "GRE"):
-					i+=5
-				elif (doEvaluate(toks[i+1][4:]) <= getVARIABLE(toks[i+3]) and toks[i+2][4:] == "LSE"):
-					i+=5
-				elif (doEvaluate(toks[i+1][4:]) != getVARIABLE(toks[i+3]) and toks[i+2][4:] == "NTE"):
-					i+=5
-				else:
-					i+=5
-					while toks[i] != "EIF:":
-						i+=1
-			else:
-				if toks[i+4][0:4]=="EXP:":
-					temp=toks[i+3]
-					tok=""
-					tok+=toks[i+3][4:]+" "+toks[i+4][4:]+" "
-					tok,j=evaluateSpecialExpression(tok,toks,i,5)
-					j+=1
-					if (doEvaluate(toks[i+1][4:]) == tok[4:] and toks[i+2][4:] == "DQL"):
-						i+=j
-					elif (doEvaluate(toks[i+1][4:]) > tok[4:] and toks[i+2][4:] == "GRT"):
-						i+=j
-					elif (doEvaluate(toks[i+1][4:]) < tok[4:] and toks[i+2][4:] == "LST"):
-						i+=j
-					elif (doEvaluate(toks[i+1][4:]) >= tok[4:] and toks[i+2][4:] == "GRE"):
-						i+=j
-					elif (doEvaluate(toks[i+1][4:]) <= tok[4:] and toks[i+2][4:] == "LSE"):
-						i+=j
-					elif (doEvaluate(toks[i+1][4:]) != tok[4:] and toks[i+2][4:] == "NTE"):
-						i+=j
-					else:
-						i+=j
-						while toks[i] != "EIF:":
-							i+=1
+				i+=5
+				while toks[i] != "EIF:":
+					i+=1
 					
-		elif toks[i][0:4] + " " + toks[i+1][0:4] + " " + toks[i+2][0:4] + " " + toks[i+3][0:4]== "IIF: NUM: CON: VAR:":
-			if toks[i+4][0:4]=="THN:":
-				if ((toks[i+1][4:]) == getVARIABLE(toks[i+3]) and toks[i+2][4:] == "DQL"):
-					i+=5
-				elif ((toks[i+1][4:]) > getVARIABLE(toks[i+3]) and toks[i+2][4:] == "GRT"):
-					i+=5
-				elif ((toks[i+1][4:]) < getVARIABLE(toks[i+3]) and toks[i+2][4:] == "LST"):
-					i+=5
-				elif ((toks[i+1][4:]) >= getVARIABLE(toks[i+3]) and toks[i+2][4:] == "GRE"):
-					i+=5
-				elif ((toks[i+1][4:]) <= getVARIABLE(toks[i+3]) and toks[i+2][4:] == "LSE"):
-					i+=5
-				elif ((toks[i+1][4:]) != getVARIABLE(toks[i+3]) and toks[i+2][4:] == "NTE"):
-					i+=5
-				else:
-					i+=5
-					while toks[i] != "EIF:":
-						i+=1
+		elif toks[i][0:4] + " " + toks[i+1][0:4] + " " + toks[i+2][0:4] + " " + toks[i+3][0:4] + " " + toks[i+4][0:4] == "IIF: EXP: CON: VAR: THN:":
+			if (doEvaluate(toks[i+1][4:]) == getVARIABLE(toks[i+3]) and toks[i+2][4:] == "DQL"):
+				i+=5
+			elif (doEvaluate(toks[i+1][4:]) > getVARIABLE(toks[i+3]) and toks[i+2][4:] == "GRT"):
+				i+=5
+			elif (doEvaluate(toks[i+1][4:]) < getVARIABLE(toks[i+3]) and toks[i+2][4:] == "LST"):
+				i+=5
+			elif (doEvaluate(toks[i+1][4:]) >= getVARIABLE(toks[i+3]) and toks[i+2][4:] == "GRE"):
+				i+=5
+			elif (doEvaluate(toks[i+1][4:]) <= getVARIABLE(toks[i+3]) and toks[i+2][4:] == "LSE"):
+				i+=5
+			elif (doEvaluate(toks[i+1][4:]) != getVARIABLE(toks[i+3]) and toks[i+2][4:] == "NTE"):
+				i+=5
 			else:
-				if toks[i+4][0:4]=="EXP:":
-					tok=""
-					tok+=toks[i+3][4:]+" "+toks[i+4][4:]+" "
-					tok,j=evaluateSpecialExpression(tok,toks,i,5)
-					j+=1
-					if ((toks[i+1][4:]) == tok[4:] and toks[i+2][4:] == "DQL"):
-						i+=j
-					elif ((toks[i+1][4:]) > tok[4:] and toks[i+2][4:] == "GRT"):
-						i+=j
-					elif ((toks[i+1][4:]) < tok[4:] and toks[i+2][4:] == "LST"):
-						i+=j
-					elif ((toks[i+1][4:]) >= tok[4:] and toks[i+2][4:] == "GRE"):
-						i+=j
-					elif ((toks[i+1][4:]) <= tok[4:] and toks[i+2][4:] == "LSE"):
-						i+=j
-					elif ((toks[i+1][4:]) != tok[4:] and toks[i+2][4:] == "NTE"):
-						i+=j
-					else:
-						i+=j
-						while toks[i] != "EIF:":
-							i+=1
-				else:
-					print("Invalid Expression")
-					break
-
+				i+=5
+				while toks[i] != "EIF:":
+					i+=1
+					
+		elif toks[i][0:4] + " " + toks[i+1][0:4] + " " + toks[i+2][0:4] + " " + toks[i+3][0:4] + " " + toks[i+4][0:4] == "IIF: NUM: CON: VAR: THN:":
+			if ((toks[i+1][4:]) == getVARIABLE(toks[i+3]) and toks[i+2][4:] == "DQL"):
+				i+=5
+			elif ((toks[i+1][4:]) > getVARIABLE(toks[i+3]) and toks[i+2][4:] == "GRT"):
+				i+=5
+			elif ((toks[i+1][4:]) < getVARIABLE(toks[i+3]) and toks[i+2][4:] == "LST"):
+				i+=5
+			elif ((toks[i+1][4:]) >= getVARIABLE(toks[i+3]) and toks[i+2][4:] == "GRE"):
+				i+=5
+			elif ((toks[i+1][4:]) <= getVARIABLE(toks[i+3]) and toks[i+2][4:] == "LSE"):
+				i+=5
+			elif ((toks[i+1][4:]) != getVARIABLE(toks[i+3]) and toks[i+2][4:] == "NTE"):
+				i+=5
+			else:
+				i+=5
+				while toks[i] != "EIF:":
+					i+=1
 		elif toks[i][0:4] + " " + toks[i+1][0:4] + " " + toks[i+2][0:4] + " " + toks[i+3][0:4] + " " + toks[i+4][0:4] == "IIF: VAR: CON: NUM: THN:":					
 			if (getVARIABLE(toks[i+1]) == (toks[i+3][4:]) and toks[i+2][4:] == "DQL"):
 				i+=5
@@ -674,9 +683,13 @@ def parse(toks):
 		elif toks[i][0:4] + " " + toks[i+1][0:4] + " " + toks[i+2][0:4] + " " + toks[i+3][0:4] == "LOP: VAR: TIL: NUM:":
 			loop.append(getVARIABLE(toks[i+1]))
 			i+=4
+
 def run():
 	data = open_file(argv[1])
 	toks = lex(data)
 	del toks[len(toks)-1]
-	parse(toks)
+	toks=doLoop(toks)
+	print(toks)
+	print(funcdict)
+	#parse(toks)
 run()
